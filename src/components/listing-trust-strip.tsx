@@ -1,17 +1,10 @@
-import Link from "next/link";
 import { getInitials } from "@/lib/format";
 
 type ListingTrustStripProps = {
   importerName: string | null;
-  slug: string;
-  activeView: "order" | "track";
 };
 
-export function ListingTrustStrip({
-  importerName,
-  slug,
-  activeView,
-}: ListingTrustStripProps) {
+export function ListingTrustStrip({ importerName }: ListingTrustStripProps) {
   const organizer = importerName || "Akwaaba Cargo Importer";
   const initials = getInitials(organizer);
 
@@ -40,43 +33,18 @@ export function ListingTrustStrip({
         </span>
       </div>
 
-      {/* Organizer row + quick view switch */}
-      <div className="mt-3 flex items-center justify-between gap-2.5 border-t border-slate-200/70 pt-2.5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#071527] text-xs font-bold text-white">
-            {initials}
-          </span>
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium text-slate-500">
-              Batch Organizer
-            </p>
-            <p className="truncate text-xs font-bold text-slate-900">
-              {organizer}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 rounded-lg bg-white p-0.5 text-[11px] font-semibold ring-1 ring-slate-200">
-          <Link
-            href={`/l/${slug}`}
-            className={`rounded-md px-2.5 py-1 transition ${
-              activeView === "order"
-                ? "bg-[#071527] text-white"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Order
-          </Link>
-          <Link
-            href={`/l/${slug}/track`}
-            className={`rounded-md px-2.5 py-1 transition ${
-              activeView === "track"
-                ? "bg-[#071527] text-white"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Track
-          </Link>
+      {/* Organizer row */}
+      <div className="mt-3 flex items-center gap-2.5 border-t border-slate-200/70 pt-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#071527] text-xs font-bold text-white">
+          {initials}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium text-slate-500">
+            Batch Organizer
+          </p>
+          <p className="truncate text-xs font-bold text-slate-900">
+            {organizer}
+          </p>
         </div>
       </div>
     </section>

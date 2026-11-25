@@ -10,6 +10,10 @@ export type PaymentStatus = "pending" | "paid" | "failed";
 
 export type SmsDeliveryStatus = "sent" | "failed";
 
+export type ShippingMethod = "air" | "sea";
+
+export type DeliveryMethod = "pickup" | "delivery";
+
 export type Database = {
   public: {
     Tables: {
@@ -45,9 +49,15 @@ export type Database = {
           title: string;
           description: string | null;
           image_url: string | null;
+          gallery_urls: string[];
           price_pesewas: number;
           full_price_pesewas: number | null;
           min_qty: number;
+          max_qty_per_order: number | null;
+          shipping_method: ShippingMethod | null;
+          estimated_arrival: string | null;
+          pickup_location: string | null;
+          delivery_fee_pesewas: number | null;
           deadline: string;
           status: ListingStatus;
           created_at: string;
@@ -59,9 +69,15 @@ export type Database = {
           title: string;
           description?: string | null;
           image_url?: string | null;
+          gallery_urls?: string[];
           price_pesewas: number;
           full_price_pesewas?: number | null;
           min_qty?: number;
+          max_qty_per_order?: number | null;
+          shipping_method?: ShippingMethod | null;
+          estimated_arrival?: string | null;
+          pickup_location?: string | null;
+          delivery_fee_pesewas?: number | null;
           deadline: string;
           status?: ListingStatus;
           created_at?: string;
@@ -73,9 +89,15 @@ export type Database = {
           title?: string;
           description?: string | null;
           image_url?: string | null;
+          gallery_urls?: string[];
           price_pesewas?: number;
           full_price_pesewas?: number | null;
           min_qty?: number;
+          max_qty_per_order?: number | null;
+          shipping_method?: ShippingMethod | null;
+          estimated_arrival?: string | null;
+          pickup_location?: string | null;
+          delivery_fee_pesewas?: number | null;
           deadline?: string;
           status?: ListingStatus;
           created_at?: string;
@@ -96,7 +118,11 @@ export type Database = {
           listing_id: string;
           buyer_name: string;
           buyer_phone: string;
+          momo_phone: string | null;
           qty: number;
+          delivery_method: DeliveryMethod;
+          delivery_fee_pesewas: number;
+          terms_accepted: boolean;
           amount_pesewas: number;
           payment_status: PaymentStatus;
           paystack_reference: string;
@@ -107,7 +133,11 @@ export type Database = {
           listing_id: string;
           buyer_name: string;
           buyer_phone: string;
+          momo_phone?: string | null;
           qty: number;
+          delivery_method?: DeliveryMethod;
+          delivery_fee_pesewas?: number;
+          terms_accepted?: boolean;
           amount_pesewas: number;
           payment_status?: PaymentStatus;
           paystack_reference: string;
@@ -118,7 +148,11 @@ export type Database = {
           listing_id?: string;
           buyer_name?: string;
           buyer_phone?: string;
+          momo_phone?: string | null;
           qty?: number;
+          delivery_method?: DeliveryMethod;
+          delivery_fee_pesewas?: number;
+          terms_accepted?: boolean;
           amount_pesewas?: number;
           payment_status?: PaymentStatus;
           paystack_reference?: string;
@@ -227,6 +261,8 @@ export type Database = {
       listing_status: ListingStatus;
       payment_status: PaymentStatus;
       sms_delivery_status: SmsDeliveryStatus;
+      shipping_method: ShippingMethod;
+      delivery_method: DeliveryMethod;
     };
     CompositeTypes: Record<string, never>;
   };

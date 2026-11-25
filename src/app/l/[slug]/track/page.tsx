@@ -128,11 +128,7 @@ export default async function PublicTrackingPage({ params }: TrackPageProps) {
 
       <main className="mx-auto max-w-md space-y-4 px-4 pt-4">
         {/* Top Trust Strip */}
-        <ListingTrustStrip
-          importerName={listing.importer_name}
-          slug={listing.slug}
-          activeView="track"
-        />
+        <ListingTrustStrip importerName={listing.importer_name} />
 
         {/* Batch Status Summary Card */}
         <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
@@ -157,12 +153,22 @@ export default async function PublicTrackingPage({ params }: TrackPageProps) {
                 {listing.title}
               </h1>
               <p className="mt-0.5 text-xs text-slate-600">
-                Deposit: <span className="font-semibold text-slate-900">{formatGhs(listing.price_pesewas)}</span>
-                {hasSplitBalance && (
+                {hasSplitBalance ? (
                   <>
-                    {" "}· Balance on pickup:{" "}
+                    Deposit:{" "}
+                    <span className="font-semibold text-slate-900">
+                      {formatGhs(listing.price_pesewas)}
+                    </span>{" "}
+                    · Balance on pickup:{" "}
                     <span className="font-semibold text-slate-900">
                       {formatGhs(balancePesewas)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Price:{" "}
+                    <span className="font-semibold text-slate-900">
+                      {formatGhs(listing.price_pesewas)}
                     </span>
                   </>
                 )}
@@ -360,7 +366,9 @@ export default async function PublicTrackingPage({ params }: TrackPageProps) {
                 href={`/l/${listing.slug}`}
                 className="block w-full rounded-xl bg-[#071527] px-4 py-3 text-center text-sm font-bold text-white transition hover:bg-slate-800"
               >
-                Reserve a slot ({formatGhs(listing.price_pesewas)} deposit)
+                {hasSplitBalance
+                  ? `Reserve a slot (${formatGhs(listing.price_pesewas)} deposit)`
+                  : `Reserve & Pay ${formatGhs(listing.price_pesewas)}`}
               </Link>
             )}
 

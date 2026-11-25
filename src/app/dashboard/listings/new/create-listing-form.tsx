@@ -13,6 +13,7 @@ import {
   formatFileSize,
 } from "@/lib/image-compress";
 import { ShareListingActions } from "@/components/share-listing-actions";
+import type { ShippingMethod } from "@/types/database";
 
 type CreatedListing = {
   id: string;
@@ -28,6 +29,7 @@ type CreateListingFormProps = {
 };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_PHOTOS = 5;
 
 export function CreateListingForm({
   importerId,
@@ -38,9 +40,15 @@ export function CreateListingForm({
   const [priceGhs, setPriceGhs] = useState("");
   const [fullPriceGhs, setFullPriceGhs] = useState("");
   const [minQty, setMinQty] = useState("1");
+  const [maxQtyPerOrder, setMaxQtyPerOrder] = useState("");
+  const [shippingMethod, setShippingMethod] = useState<"" | ShippingMethod>("");
+  const [estimatedArrival, setEstimatedArrival] = useState("");
+  const [pickupLocation, setPickupLocation] = useState("");
+  const [deliveryFeeGhs, setDeliveryFeeGhs] = useState("");
   const [deadline, setDeadline] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [imageInfo, setImageInfo] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
 
@@ -51,35 +59,46 @@ export function CreateListingForm({
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     setError(null);
     setImageInfo(null);
-    const file = e.target.files?.[0] ?? null;
+    const selected = Array.from(e.target.files ?? []).slice(0, MAX_PHOTOS);
 
-    if (!file) {
-      setImageFile(null);
-      setImagePreview(null);
+    if (selected.length === 0) {
+      setImageFiles([]);
+      setImagePreviews([]);
       return;
     }
 
-    if (file.size > MAX_IMAGE_BYTES * 3) {
-      setError("Photo is too large (max 15 MB before compression).");
-      e.target.value = "";
-      return;
+    for (const file of selected) {
+      if (file.size > MAX_IMAGE_BYTES * 3) {
+        setError("Each photo must be 15 MB or smaller before compression.");
+        e.target.value = "";
+        return;
+      }
     }
 
     setCompressing(true);
     try {
-      const result = await compressListingImage(file);
-      if (result.file.size > MAX_IMAGE_BYTES) {
-        setError("Photo must be 5 MB or smaller after compression.");
-        e.target.value = "";
-        return;
+      const compressedFiles: File[] = [];
+      const previews: string[] = [];
+      let totalOrig = 0;
+      let totalCompressed = 0;
+
+      for (const file of selected) {
+        const result = await compressListingImage(file);
+        if (result.file.size > MAX_IMAGE_BYTES) {
+          setError("Each photo must be 5 MB or smaller after compression.");
+          e.target.value = "";
+          return;
+        }
+        compressedFiles.push(result.file);
+        previews.push(URL.createObjectURL(result.file));
+        totalOrig += result.originalBytes;
+        totalCompressed += result.compressedBytes;
       }
 
-      setImageFile(result.file);
-      setImagePreview(URL.createObjectURL(result.file));
+      setImageFiles(compressedFiles);
+      setImagePreviews(previews);
       setImageInfo(
-        result.wasCompressed
-          ? `Compressed ${formatFileSize(result.originalBytes)} → ${formatFileSize(result.compressedBytes)} for fast mobile loading`
-          : `Ready (${formatFileSize(result.file.size)})`
+        `${compressedFiles.length} ${compressedFiles.length === 1 ? "photo" : "photos"} ready (${formatFileSize(totalOrig)} → ${formatFileSize(totalCompressed)})`
       );
     } finally {
       setCompressing(false);
@@ -98,7 +117,7 @@ export function CreateListingForm({
 
     const pricePesewas = ghsToPesewas(priceGhs);
     if (!pricePesewas) {
-      setError("Please enter a valid deposit price in GHS greater than 0.");
+      setError("Please enter a valid price in GHS greater than 0.");
       return;
     }
 
@@ -107,7 +126,7 @@ export function CreateListingForm({
       fullPricePesewas = ghsToPesewas(fullPriceGhs);
       if (!fullPricePesewas || fullPricePesewas < pricePesewas) {
         setError(
-          "Full price must be greater than or equal to the deposit due now."
+          "Full price must be greater than or equal to the upfront price/deposit."
         );
         return;
       }
@@ -117,6 +136,25 @@ export function CreateListingForm({
     if (!Number.isInteger(parsedMinQty) || parsedMinQty < 1) {
       setError("Minimum quantity must be at least 1.");
       return;
+    }
+
+    let parsedMaxQty: number | null = null;
+    if (maxQtyPerOrder.trim() !== "") {
+      parsedMaxQty = Number.parseInt(maxQtyPerOrder, 10);
+      if (!Number.isInteger(parsedMaxQty) || parsedMaxQty < 1) {
+        setError("Maximum quantity per order must be at least 1.");
+        return;
+      }
+    }
+
+    let deliveryFeePesewas: number | null = null;
+    if (deliveryFeeGhs.trim() !== "") {
+      const parsedFee = Number(deliveryFeeGhs);
+      if (!Number.isFinite(parsedFee) || parsedFee < 0) {
+        setError("Delivery fee must be 0 or greater.");
+        return;
+      }
+      deliveryFeePesewas = Math.round(parsedFee * 100);
     }
 
     const deadlineDate = new Date(deadline);
@@ -133,10 +171,10 @@ export function CreateListingForm({
     setLoading(true);
     try {
       const supabase = createClient();
-      let imageUrl: string | null = null;
+      const uploadedUrls: string[] = [];
 
-      if (imageFile) {
-        const ext = imageFile.name.split(".").pop()?.toLowerCase() || "jpg";
+      for (const file of imageFiles) {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
         const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext)
           ? ext
           : "jpg";
@@ -144,7 +182,7 @@ export function CreateListingForm({
 
         const { error: uploadError } = await supabase.storage
           .from("listing-images")
-          .upload(filePath, imageFile, {
+          .upload(filePath, file, {
             cacheControl: "3600",
             upsert: false,
           });
@@ -158,10 +196,9 @@ export function CreateListingForm({
           .from("listing-images")
           .getPublicUrl(filePath);
 
-        imageUrl = publicUrlData.publicUrl;
+        uploadedUrls.push(publicUrlData.publicUrl);
       }
 
-      // Insert with auto-generated unique slug (retry on rare collision)
       let savedListing: CreatedListing | null = null;
       let lastError: string | null = null;
 
@@ -174,10 +211,16 @@ export function CreateListingForm({
             slug,
             title: trimmedTitle,
             description: description.trim() || null,
-            image_url: imageUrl,
+            image_url: uploadedUrls[0] ?? null,
+            gallery_urls: uploadedUrls,
             price_pesewas: pricePesewas,
             full_price_pesewas: fullPricePesewas,
             min_qty: parsedMinQty,
+            max_qty_per_order: parsedMaxQty,
+            shipping_method: shippingMethod || null,
+            estimated_arrival: estimatedArrival.trim() || null,
+            pickup_location: pickupLocation.trim() || null,
+            delivery_fee_pesewas: deliveryFeePesewas,
             deadline: deadlineDate.toISOString(),
             status: "open",
           })
@@ -189,7 +232,6 @@ export function CreateListingForm({
           break;
         }
 
-        // Postgres unique violation -> retry with a fresh slug suffix
         if (insertError?.code === "23505") {
           lastError = insertError.message;
           continue;
@@ -219,9 +261,15 @@ export function CreateListingForm({
     setPriceGhs("");
     setFullPriceGhs("");
     setMinQty("1");
+    setMaxQtyPerOrder("");
+    setShippingMethod("");
+    setEstimatedArrival("");
+    setPickupLocation("");
+    setDeliveryFeeGhs("");
     setDeadline("");
-    setImageFile(null);
-    setImagePreview(null);
+    setImageFiles([]);
+    setImagePreviews([]);
+    setImageInfo(null);
     setError(null);
   }
 
@@ -229,7 +277,7 @@ export function CreateListingForm({
     return (
       <div className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 shadow-xs">
         <div>
-          <span className="inline-block rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-800">
+          <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-[#0f6b47]">
             Batch live
           </span>
           <h2 className="mt-2 text-xl font-bold text-gray-900">
@@ -256,7 +304,7 @@ export function CreateListingForm({
           <button
             type="button"
             onClick={handleReset}
-            className="font-medium text-teal-700 hover:underline"
+            className="font-medium text-[#0f6b47] hover:underline"
           >
             + Create another
           </button>
@@ -290,7 +338,7 @@ export function CreateListingForm({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Rechargeable Mini Fan (Batch 4)"
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
         />
       </div>
 
@@ -306,8 +354,8 @@ export function CreateListingForm({
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Sizes, colours, estimated delivery time to Accra/Kumasi..."
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+          placeholder="Sizes, colours, specs, or pickup notes..."
+          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
         />
       </div>
 
@@ -316,37 +364,45 @@ export function CreateListingForm({
           htmlFor="photo"
           className="block text-sm font-medium text-gray-700"
         >
-          Product photo
+          Product photos{" "}
+          <span className="font-normal text-gray-400">(up to 5)</span>
         </label>
         <input
           id="photo"
           type="file"
+          multiple
           accept="image/jpeg,image/png,image/webp"
           onChange={handleFileChange}
-          className="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3.5 file:py-2 file:text-sm file:font-semibold file:text-teal-700 hover:file:bg-teal-100"
+          className="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3.5 file:py-2 file:text-sm file:font-semibold file:text-[#0f6b47] hover:file:bg-emerald-100"
         />
         <p className="mt-1 text-xs text-gray-500">
           {compressing
-            ? "Optimizing photo for mobile..."
+            ? "Optimizing photos for mobile..."
             : imageInfo || "Auto-compressed for fast WhatsApp & mobile loading."}
         </p>
-        {imagePreview && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imagePreview}
-            alt="Preview"
-            className="mt-2 h-40 w-full rounded-lg border border-gray-200 object-cover"
-          />
+        {imagePreviews.length > 0 && (
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {imagePreviews.map((src, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={src}
+                src={src}
+                alt={`Preview ${i + 1}`}
+                className="h-20 w-20 shrink-0 rounded-lg border border-gray-200 object-cover"
+              />
+            ))}
+          </div>
         )}
       </div>
 
+      {/* Pricing */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label
             htmlFor="priceGhs"
             className="block text-sm font-medium text-gray-700"
           >
-            Deposit now (GHS)
+            Pay now (GHS)
           </label>
           <input
             id="priceGhs"
@@ -358,7 +414,7 @@ export function CreateListingForm({
             value={priceGhs}
             onChange={(e) => setPriceGhs(e.target.value)}
             placeholder="200.00"
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
           />
         </div>
 
@@ -379,32 +435,138 @@ export function CreateListingForm({
             value={fullPriceGhs}
             onChange={(e) => setFullPriceGhs(e.target.value)}
             placeholder="680.00"
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          />
+        </div>
+      </div>
+      <p className="-mt-2 text-xs text-gray-500">
+        Leave Full price blank for full upfront payment. Set it higher than Pay
+        now to collect a deposit with balance due on pickup.
+      </p>
+
+      {/* Quantities */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label
+            htmlFor="minQty"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Min. batch qty
+          </label>
+          <input
+            id="minQty"
+            type="number"
+            inputMode="numeric"
+            min="1"
+            step="1"
+            required
+            value={minQty}
+            onChange={(e) => setMinQty(e.target.value)}
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="maxQtyPerOrder"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Max / order{" "}
+            <span className="font-normal text-gray-400">(optional)</span>
+          </label>
+          <input
+            id="maxQtyPerOrder"
+            type="number"
+            inputMode="numeric"
+            min="1"
+            step="1"
+            value={maxQtyPerOrder}
+            onChange={(e) => setMaxQtyPerOrder(e.target.value)}
+            placeholder="e.g. 5"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
           />
         </div>
       </div>
 
-      <div>
-        <label
-          htmlFor="minQty"
-          className="block text-sm font-medium text-gray-700"
-        >
-          Minimum quantity
-        </label>
-        <input
-          id="minQty"
-          type="number"
-          inputMode="numeric"
-          min="1"
-          step="1"
-          required
-          value={minQty}
-          onChange={(e) => setMinQty(e.target.value)}
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
-        />
-        <p className="mt-1 text-xs text-gray-500">
-          Leave Full price blank if buyers pay the full amount upfront.
-        </p>
+      {/* Shipping & Arrival */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label
+            htmlFor="shippingMethod"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Shipping method
+          </label>
+          <select
+            id="shippingMethod"
+            value={shippingMethod}
+            onChange={(e) =>
+              setShippingMethod(e.target.value as "" | ShippingMethod)
+            }
+            className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-base text-gray-900 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          >
+            <option value="">Not specified</option>
+            <option value="air">Air freight</option>
+            <option value="sea">Sea freight</option>
+          </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="estimatedArrival"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Est. arrival
+          </label>
+          <input
+            id="estimatedArrival"
+            type="text"
+            value={estimatedArrival}
+            onChange={(e) => setEstimatedArrival(e.target.value)}
+            placeholder="e.g. Dec 10 – 15"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          />
+        </div>
+      </div>
+
+      {/* Pickup & Delivery */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label
+            htmlFor="pickupLocation"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Pickup location
+          </label>
+          <input
+            id="pickupLocation"
+            type="text"
+            value={pickupLocation}
+            onChange={(e) => setPickupLocation(e.target.value)}
+            placeholder="e.g. Circle Mall, Accra"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="deliveryFeeGhs"
+            className="block text-sm font-medium text-gray-700"
+          >
+            Delivery fee (GHS)
+          </label>
+          <input
+            id="deliveryFeeGhs"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            value={deliveryFeeGhs}
+            onChange={(e) => setDeliveryFeeGhs(e.target.value)}
+            placeholder="Blank = pickup only"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
+          />
+        </div>
       </div>
 
       <div>
@@ -420,7 +582,7 @@ export function CreateListingForm({
           required
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20"
         />
       </div>
 
@@ -438,7 +600,7 @@ export function CreateListingForm({
         {loading
           ? "Saving listing..."
           : compressing
-            ? "Optimizing photo..."
+            ? "Optimizing photos..."
             : "Save & get share link"}
       </button>
     </form>

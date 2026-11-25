@@ -7,6 +7,7 @@ import {
   phoneToPaystackEmail,
 } from "@/lib/paystack";
 import { createRateLimiter, getClientIp } from "@/lib/rate-limit";
+import type { DeliveryMethod } from "@/types/database";
 
 const checkoutRateLimiter = createRateLimiter({
   maxRequests: 10,
@@ -17,7 +18,10 @@ type CheckoutRequestBody = {
   listingId?: unknown;
   buyerName?: unknown;
   buyerPhone?: unknown;
+  momoPhone?: unknown;
   qty?: unknown;
+  deliveryMethod?: unknown;
+  termsAccepted?: unknown;
 };
 
 const UUID_REGEX =
@@ -78,8 +82,29 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Enter a valid Ghanaian phone number (e.g. 024 123 4567 or +233 24 123 4567).",
+          "Enter a valid Ghanaian WhatsApp/SMS phone number (e.g. 024 123 4567).",
       },
+      { status: 400 }
+    );
+  }
+
+  let momoPhone: string | null = null;
+  if (typeof body.momoPhone === "string" && body.momoPhone.trim() !== "") {
+    momoPhone = normalizeGhanaPhone(body.momoPhone.trim());
+    if (!momoPhone) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter a valid Ghanaian Mobile Money number (e.g. 024 123 4567).",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (body.termsAccepted !== true) {
+    return NextResponse.json(
+      { error: "Please accept the pre-order terms and refund policy to continue." },
       { status: 400 }
     );
   }
@@ -93,16 +118,21 @@ export async function POST(request: Request) {
 
   if (!Number.isInteger(qty) || qty < 1 || qty > 1000) {
     return NextResponse.json(
-      { error: "Quantity must be a whole number between 1 and 1,000." },
+      { error: "Quantity must be a whole number of at least 1." },
       { status: 400 }
     );
   }
+
+  const deliveryMethod: DeliveryMethod =
+    body.deliveryMethod === "delivery" ? "delivery" : "pickup";
 
   // 2. Fetch listing from Postgres and verify it is still open
   const admin = createAdminClient();
   const { data: listing, error: listingError } = await admin
     .from("listings")
-    .select("id, slug, title, price_pesewas, deadline, status")
+    .select(
+      "id, slug, title, price_pesewas, max_qty_per_order, delivery_fee_pesewas, deadline, status"
+    )
     .eq("id", listingId)
     .maybeSingle();
 
@@ -123,9 +153,31 @@ export async function POST(request: Request) {
     );
   }
 
+  if (listing.max_qty_per_order !== null && qty > listing.max_qty_per_order) {
+    return NextResponse.json(
+      {
+        error: `Maximum quantity per order is ${listing.max_qty_per_order}.`,
+      },
+      { status: 400 }
+    );
+  }
+
+  if (
+    deliveryMethod === "delivery" &&
+    listing.delivery_fee_pesewas === null
+  ) {
+    return NextResponse.json(
+      { error: "Delivery is not available for this batch." },
+      { status: 400 }
+    );
+  }
+
   // 3. Compute amount strictly on the server (never trust client totals)
-  const amountPesewas = listing.price_pesewas * qty;
+  const deliveryFeePesewas =
+    deliveryMethod === "delivery" ? (listing.delivery_fee_pesewas ?? 0) : 0;
+  const amountPesewas = listing.price_pesewas * qty + deliveryFeePesewas;
   const reference = generatePaystackReference();
+  const paymentPhone = momoPhone ?? buyerPhone;
 
   // 4. Create pending order before redirecting to Paystack
   const { data: order, error: orderError } = await admin
@@ -134,7 +186,11 @@ export async function POST(request: Request) {
       listing_id: listing.id,
       buyer_name: buyerName,
       buyer_phone: buyerPhone,
+      momo_phone: momoPhone,
       qty,
+      delivery_method: deliveryMethod,
+      delivery_fee_pesewas: deliveryFeePesewas,
+      terms_accepted: true,
       amount_pesewas: amountPesewas,
       payment_status: "pending",
       paystack_reference: reference,
@@ -156,7 +212,7 @@ export async function POST(request: Request) {
 
   try {
     const paystack = await initializePaystackTransaction({
-      email: phoneToPaystackEmail(buyerPhone),
+      email: phoneToPaystackEmail(paymentPhone),
       amountPesewas,
       reference,
       callbackUrl: `${appUrl}/orders/success`,
@@ -167,6 +223,9 @@ export async function POST(request: Request) {
         listing_title: listing.title,
         buyer_name: buyerName,
         buyer_phone: buyerPhone,
+        momo_phone: paymentPhone,
+        delivery_method: deliveryMethod,
+        delivery_fee_pesewas: deliveryFeePesewas,
         qty,
       },
     });
@@ -176,7 +235,6 @@ export async function POST(request: Request) {
       reference: paystack.reference,
     });
   } catch (err) {
-    // Mark pending order as failed if Paystack could not be initialized
     await admin
       .from("orders")
       .update({ payment_status: "failed" })

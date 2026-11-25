@@ -30,7 +30,7 @@ export async function generateMetadata({
   const title = `${listing.title} — ${price}`;
   const description =
     listing.description?.slice(0, 155) ||
-    `Pre-order ${listing.title} (${price} deposit via Mobile Money). Paid securely via Paystack.`;
+    `Pre-order ${listing.title} (${price} via Mobile Money). Paid securely via Paystack.`;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
   const url = appUrl ? `${appUrl}/l/${listing.slug}` : undefined;
 
@@ -85,8 +85,15 @@ export default async function PublicListingPage({ params }: PageProps) {
   const minReached = listing.reserved_qty >= listing.min_qty;
   const remainingQty = Math.max(0, listing.min_qty - listing.reserved_qty);
 
+  const hasLogisticsInfo = Boolean(
+    listing.shipping_method ||
+      listing.estimated_arrival ||
+      listing.pickup_location ||
+      listing.delivery_fee_pesewas !== null
+  );
+
   return (
-    <div className="min-h-screen bg-[#faf8f5] pb-12">
+    <div className="min-h-screen bg-[#faf8f5] pb-32 sm:pb-12">
       <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/95 backdrop-blur-xs">
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
           <BrandLogo size="sm" />
@@ -100,18 +107,18 @@ export default async function PublicListingPage({ params }: PageProps) {
       </header>
 
       <main className="mx-auto max-w-md space-y-4 px-4 pt-4">
-        {/* Top Trust Strip */}
-        <ListingTrustStrip
-          importerName={listing.importer_name}
-          slug={listing.slug}
-          activeView="order"
-        />
+        {/* Top Trust Strip (no duplicate Order/Track toggle) */}
+        <ListingTrustStrip importerName={listing.importer_name} />
 
-        {/* Batch Hero & Progress Card */}
+        {/* Batch Hero, Progress Bar & Logistics Details */}
         <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
-              China → Ghana Pre-Order Batch
+              {listing.shipping_method === "air"
+                ? "Air Freight · China → Ghana"
+                : listing.shipping_method === "sea"
+                  ? "Sea Freight · China → Ghana"
+                  : "China → Ghana Pre-Order Batch"}
             </span>
             <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-[#0f6b47]">
               {LISTING_STATUS_LABELS[listing.status]}
@@ -123,7 +130,7 @@ export default async function PublicListingPage({ params }: PageProps) {
           </h1>
 
           <p className="mt-1.5 text-xs text-slate-600">
-            Deadline:{" "}
+            Order deadline:{" "}
             <span className="font-semibold text-slate-800">
               {new Date(listing.deadline).toLocaleDateString("en-GH", {
                 day: "numeric",
@@ -178,53 +185,93 @@ export default async function PublicListingPage({ params }: PageProps) {
               </span>
             </div>
           </div>
+
+          {/* Shipping, Arrival, Pickup & Delivery Details under progress bar */}
+          {hasLogisticsInfo && (
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              {listing.shipping_method && (
+                <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Shipping
+                  </dt>
+                  <dd className="mt-0.5 font-bold text-slate-900">
+                    {listing.shipping_method === "air"
+                      ? "Air freight"
+                      : "Sea freight"}
+                  </dd>
+                </div>
+              )}
+
+              {listing.estimated_arrival && (
+                <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Est. arrival
+                  </dt>
+                  <dd className="mt-0.5 font-bold text-slate-900">
+                    {listing.estimated_arrival}
+                  </dd>
+                </div>
+              )}
+
+              {listing.pickup_location && (
+                <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Pickup location
+                  </dt>
+                  <dd className="mt-0.5 font-bold text-slate-900">
+                    {listing.pickup_location}
+                  </dd>
+                </div>
+              )}
+
+              {listing.delivery_fee_pesewas !== null && (
+                <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 px-3 py-2">
+                  <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Delivery option
+                  </dt>
+                  <dd className="mt-0.5 font-bold text-slate-900">
+                    {listing.delivery_fee_pesewas === 0
+                      ? "Free delivery"
+                      : `Available (+${formatGhs(listing.delivery_fee_pesewas)})`}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
         </section>
 
-        {/* Product Card (Deposit/Balance), Buyer Form & Live Total */}
+        {/* Product Card (Gallery, Read more, Deposit/Full), Buyer Form & Live Total */}
         <ListingOrderSection
           listingId={listing.id}
           title={listing.title}
           description={listing.description}
-          imageUrl={listing.image_url}
+          photos={listing.photos}
           pricePesewas={listing.price_pesewas}
           fullPricePesewas={listing.full_price_pesewas}
+          maxQtyPerOrder={listing.max_qty_per_order}
+          pickupLocation={listing.pickup_location}
+          deliveryFeePesewas={listing.delivery_fee_pesewas}
           deadline={listing.deadline}
           status={listing.status}
           initialRemainingMs={initialRemainingMs}
         />
 
-        {/* Tracking & WhatsApp Contact Footer Card */}
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Already reserved?
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-600">
-                View batch timeline updates and uploaded proof photos.
-              </p>
-            </div>
-            <Link
-              href={`/l/${listing.slug}/track`}
-              className="shrink-0 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100"
+        {/* WhatsApp Contact Card */}
+        {listing.importer_whatsapp_url && (
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+            <p className="text-xs text-slate-600">
+              Have a question about this batch?
+            </p>
+            <a
+              href={listing.importer_whatsapp_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 block w-full rounded-xl bg-[#25D366] px-4 py-2.5 text-center text-xs font-bold text-white transition hover:bg-[#1fb858]"
             >
-              View timeline
-            </Link>
-          </div>
-
-          {listing.importer_whatsapp_url && (
-            <div className="mt-3 border-t border-slate-100 pt-3">
-              <a
-                href={listing.importer_whatsapp_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full rounded-xl bg-[#25D366] px-4 py-2.5 text-center text-xs font-bold text-white transition hover:bg-[#1fb858]"
-              >
-                Chat with {listing.importer_name || "Organizer"} on WhatsApp
-              </a>
-            </div>
-          )}
-        </section>
+              Chat with {listing.importer_name || "Organizer"} on WhatsApp
+            </a>
+          </section>
+        )}
       </main>
     </div>
   );
