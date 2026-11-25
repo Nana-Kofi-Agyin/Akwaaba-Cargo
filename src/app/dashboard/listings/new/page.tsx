@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth";
 import { CreateListingForm } from "./create-listing-form";
 
 export default async function NewListingPage() {
   const { user, importer } = await getAuthContext();
+  if (!user || !importer) {
+    redirect("/login");
+  }
 
   return (
     <div className="space-y-4">
@@ -22,7 +26,7 @@ export default async function NewListingPage() {
         </Link>
       </div>
 
-      <CreateListingForm importerId={importer!.id} userId={user!.id} />
+      <CreateListingForm importerId={importer.id} userId={user.id} />
     </div>
   );
 }

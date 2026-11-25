@@ -1,12 +1,58 @@
 /**
- * Format pesewas (integer) as Ghana Cedis, e.g. 15000 -> "GHS 150.00"
+ * Format pesewas (integer) as Ghana Cedis, e.g. 15000 -> "GH₵ 150.00"
  */
 export function formatGhs(pesewas: number): string {
   const cedis = pesewas / 100;
-  return `GHS ${cedis.toLocaleString("en-GH", {
+  return `GH₵ ${cedis.toLocaleString("en-GH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+/**
+ * Detect Ghana mobile money network label from a phone number prefix.
+ */
+export function detectGhanaNetwork(
+  raw: string
+): "MTN" | "Telecel" | "AT" | null {
+  const digits = raw.replace(/\D/g, "");
+  let prefix = "";
+  if (digits.startsWith("233") && digits.length >= 5) {
+    prefix = `0${digits.slice(3, 5)}`;
+  } else if (digits.startsWith("0") && digits.length >= 3) {
+    prefix = digits.slice(0, 3);
+  } else if (digits.length >= 2) {
+    prefix = `0${digits.slice(0, 2)}`;
+  }
+
+  if (["024", "025", "053", "054", "055", "059"].includes(prefix)) return "MTN";
+  if (["020", "050"].includes(prefix)) return "Telecel";
+  if (["026", "027", "056", "057"].includes(prefix)) return "AT";
+  return null;
+}
+
+/**
+ * Build a direct WhatsApp contact link (wa.me) to message the importer.
+ */
+export function buildImporterWhatsAppUrl(
+  importerPhone: string,
+  listingTitle: string
+): string | null {
+  const normalized = normalizeGhanaPhone(importerPhone);
+  if (!normalized) return null;
+  const waDigits = normalized.replace(/\D/g, "");
+  const message = `Hi, I have a question about the "${listingTitle}" pre-order batch on Akwaaba Cargo.`;
+  return `https://wa.me/${waDigits}?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Get 1-2 letter uppercase initials from a business name.
+ */
+export function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "AC";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
 /**

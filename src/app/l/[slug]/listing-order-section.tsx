@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { formatGhs, normalizeGhanaPhone } from "@/lib/format";
+import {
+  detectGhanaNetwork,
+  formatGhs,
+  normalizeGhanaPhone,
+} from "@/lib/format";
 import type { ListingStatus } from "@/types/database";
 
 type ListingOrderSectionProps = {
   listingId: string;
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
   pricePesewas: number;
+  fullPricePesewas: number | null;
   deadline: string;
   status: ListingStatus;
   initialRemainingMs: number;
@@ -21,18 +29,24 @@ function formatCountdown(ms: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m left`;
-  }
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s left`;
-  }
+  if (days > 0) return `${days}d ${hours}h ${minutes}m left`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s left`;
   return `${minutes}m ${seconds}s left`;
 }
 
+const NETWORK_BADGE: Record<"MTN" | "Telecel" | "AT", string> = {
+  MTN: "bg-[#ffcc00] text-slate-950",
+  Telecel: "bg-[#e60000] text-white",
+  AT: "bg-[#0057b8] text-white",
+};
+
 export function ListingOrderSection({
   listingId,
+  title,
+  description,
+  imageUrl,
   pricePesewas,
+  fullPricePesewas,
   deadline,
   status,
   initialRemainingMs,
@@ -48,12 +62,23 @@ export function ListingOrderSection({
   const isExpired = remainingMs <= 0;
   const isClosed = status !== "open" || isExpired;
 
+  const hasSplitBalance =
+    fullPricePesewas !== null && fullPricePesewas > pricePesewas;
+  const unitFullPesewas = hasSplitBalance ? fullPricePesewas : pricePesewas;
+  const unitBalancePesewas = hasSplitBalance
+    ? fullPricePesewas - pricePesewas
+    : 0;
+
+  const depositTotalPesewas = qty * pricePesewas;
+  const balanceTotalPesewas = qty * unitBalancePesewas;
+  const fullTotalPesewas = qty * unitFullPesewas;
+  const detectedNetwork = detectGhanaNetwork(buyerPhone);
+
   useEffect(() => {
     if (status !== "open") return;
 
     const update = () => {
-      const next = Math.max(0, deadlineMs - Date.now());
-      setRemainingMs(next);
+      setRemainingMs(Math.max(0, deadlineMs - Date.now()));
     };
 
     update();
@@ -115,7 +140,6 @@ export function ListingOrderSection({
         return;
       }
 
-      // Redirect buyer to Paystack Mobile Money checkout
       window.location.href = data.authorization_url;
     } catch {
       setError("Network error. Please check your connection and try again.");
@@ -123,115 +147,90 @@ export function ListingOrderSection({
     }
   }
 
-  const totalPesewas = qty * pricePesewas;
-
   return (
     <div className="space-y-4">
-      {/* Deadline bar */}
+      {/* Countdown Strip */}
       <div
-        className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm ${
+        className={`flex items-center justify-between rounded-xl px-4 py-2.5 text-xs ${
           isClosed
             ? "border border-red-200 bg-red-50 text-red-800"
-            : "border border-amber-200 bg-amber-50 text-amber-900"
+            : "border border-amber-200/80 bg-amber-50/90 text-amber-950"
         }`}
       >
-        <span className="font-medium">
-          {isClosed ? "Pre-order closed" : "Closes in"}
+        <span className="font-semibold">
+          {isClosed ? "Pre-order closed" : "Order deadline"}
         </span>
         <span className="font-bold tabular-nums">
           {status !== "open"
             ? status === "closed"
-              ? "Closed by importer"
-              : `Status: ${status}`
+              ? "Closed by organizer"
+              : `Batch status: ${status}`
             : formatCountdown(remainingMs)}
         </span>
       </div>
 
-      {/* Closed state */}
-      {isClosed ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 text-center">
-          <p className="text-base font-bold text-gray-900">
-            This pre-order batch is closed
-          </p>
-          <p className="mt-1 text-sm text-gray-600">
-            {isExpired
-              ? "The order deadline for this batch has passed. Contact the importer in your WhatsApp group for the next batch."
-              : "The importer is no longer accepting new reservations for this batch."}
-          </p>
-        </div>
-      ) : (
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4 rounded-xl border border-gray-200 bg-white p-5"
-        >
-          <div>
-            <h2 className="text-base font-bold text-gray-900">
-              Reserve your slot
+      {/* Product Card with Deposit-Now / Balance-Later Breakdown */}
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+        <div className="flex gap-3.5">
+          {imageUrl && (
+            <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt={title}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-bold leading-snug text-slate-900">
+              {title}
             </h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              No account needed. Pay deposit with Mobile Money and get SMS
-              updates.
+
+            {description && (
+              <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-relaxed text-slate-600">
+                {description}
+              </p>
+            )}
+
+            <div className="mt-2 flex flex-wrap items-baseline gap-2">
+              <span className="text-lg font-extrabold text-slate-900">
+                {formatGhs(unitFullPesewas)}
+              </span>
+              <span className="text-[11px] font-medium text-slate-500">
+                {hasSplitBalance ? "total / unit" : "per unit"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Deposit-now / Balance-later inset box + qty stepper */}
+        <div className="mt-3.5 flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200/70">
+          <div className="min-w-0 text-xs">
+            <p className="font-semibold text-amber-800">Deposit Due Now:</p>
+            <p className="mt-0.5 text-sm font-extrabold text-slate-900">
+              {formatGhs(pricePesewas)}{" "}
+              <span className="text-xs font-normal text-slate-500">/ unit</span>
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-600">
+              {hasSplitBalance
+                ? `Balance: ${formatGhs(unitBalancePesewas)} on pickup`
+                : "Balance on pickup: GH₵ 0.00 (full payment)"}
             </p>
           </div>
 
-          <div>
-            <label
-              htmlFor="buyerName"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Your name
-            </label>
-            <input
-              id="buyerName"
-              type="text"
-              required
-              autoComplete="name"
-              disabled={submitting}
-              value={buyerName}
-              onChange={(e) => setBuyerName(e.target.value)}
-              placeholder="e.g. Kwame Mensah"
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20 disabled:bg-gray-50"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="buyerPhone"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Phone number (Ghana)
-            </label>
-            <input
-              id="buyerPhone"
-              type="tel"
-              inputMode="tel"
-              required
-              autoComplete="tel"
-              disabled={submitting}
-              value={buyerPhone}
-              onChange={(e) => setBuyerPhone(e.target.value)}
-              placeholder="024 123 4567"
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20 disabled:bg-gray-50"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Used for Mobile Money &amp; SMS batch updates.
-            </p>
-          </div>
-
-          <div>
-            <label
-              htmlFor="qty"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Quantity
-            </label>
-            <div className="mt-1 flex items-center gap-2">
+          {!isClosed && (
+            <div className="flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || qty <= 1}
                 aria-label="Decrease quantity"
                 onClick={() => setQty((prev) => Math.max(1, prev - 1))}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-gray-50 text-lg font-bold text-gray-800 active:bg-gray-200 disabled:opacity-50"
+                className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-base font-bold text-slate-800 ring-1 ring-slate-300 active:bg-slate-100 disabled:opacity-40"
               >
                 -
               </button>
@@ -239,52 +238,182 @@ export function ListingOrderSection({
                 id="qty"
                 type="number"
                 inputMode="numeric"
+                aria-label="Quantity"
                 min={1}
                 max={1000}
                 step={1}
-                required
                 disabled={submitting}
                 value={qty}
                 onChange={(e) => {
                   const val = Number.parseInt(e.target.value, 10);
-                  setQty(Number.isNaN(val) ? 1 : Math.min(1000, Math.max(1, val)));
+                  setQty(
+                    Number.isNaN(val) ? 1 : Math.min(1000, Math.max(1, val))
+                  );
                 }}
-                className="h-12 w-full rounded-lg border border-gray-300 px-3 text-center text-base font-semibold text-gray-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20 disabled:bg-gray-50"
+                className="h-10 w-12 rounded-lg bg-white text-center text-base font-bold text-slate-900 ring-1 ring-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0f6b47]"
               />
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || qty >= 1000}
                 aria-label="Increase quantity"
                 onClick={() => setQty((prev) => Math.min(1000, prev + 1))}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-gray-300 bg-gray-50 text-lg font-bold text-gray-800 active:bg-gray-200 disabled:opacity-50"
+                className="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-base font-bold text-slate-800 ring-1 ring-slate-300 active:bg-slate-100 disabled:opacity-40"
               >
                 +
               </button>
             </div>
-          </div>
-
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-              {error}
-            </p>
           )}
+        </div>
+      </section>
 
-          <div className="flex items-center justify-between border-t border-gray-100 pt-3 text-sm">
-            <span className="text-gray-600">Total to pay</span>
-            <span className="text-lg font-bold text-gray-900">
-              {formatGhs(totalPesewas)}
-            </span>
+      {/* Closed State OR Buyer Form + Live Total */}
+      {isClosed ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center">
+          <p className="text-base font-bold text-slate-900">
+            This pre-order batch is closed
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            {isExpired
+              ? "The order deadline has passed. You can still follow delivery updates on the tracking page."
+              : "The organizer is no longer accepting new reservations. Follow progress on the tracking page."}
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Buyer Details Card */}
+          <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                Buyer Details
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                No account needed. Just your name and Ghanaian phone number for
+                MoMo &amp; SMS updates.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="buyerName"
+                className="block text-xs font-semibold text-slate-700"
+              >
+                Full Name
+              </label>
+              <input
+                id="buyerName"
+                type="text"
+                required
+                autoComplete="name"
+                disabled={submitting}
+                value={buyerName}
+                onChange={(e) => setBuyerName(e.target.value)}
+                placeholder="e.g. Abena Asantewaa"
+                className="mt-1.5 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-[#0f6b47] focus:outline-none focus:ring-2 focus:ring-[#0f6b47]/20 disabled:bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="buyerPhone"
+                className="block text-xs font-semibold text-slate-700"
+              >
+                WhatsApp &amp; MoMo Number (For SMS Alerts)
+              </label>
+              <div className="mt-1.5 flex items-center rounded-xl border border-slate-300 bg-white px-3 focus-within:border-[#0f6b47] focus-within:ring-2 focus-within:ring-[#0f6b47]/20">
+                <span className="mr-2 shrink-0 border-r border-slate-200 pr-2.5 text-sm font-semibold text-slate-700">
+                  +233
+                </span>
+                <input
+                  id="buyerPhone"
+                  type="tel"
+                  inputMode="tel"
+                  required
+                  autoComplete="tel"
+                  disabled={submitting}
+                  value={buyerPhone}
+                  onChange={(e) => setBuyerPhone(e.target.value)}
+                  placeholder="024 123 4567"
+                  className="block w-full bg-transparent py-3 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none disabled:opacity-60"
+                />
+                {detectedNetwork && (
+                  <span
+                    className={`ml-2 shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${NETWORK_BADGE[detectedNetwork]}`}
+                  >
+                    {detectedNetwork}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Truthful Trust Callout */}
+            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 p-3.5">
+              <p className="text-xs font-bold text-[#0f6b47]">
+                Paid securely via Paystack
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-slate-700">
+                Refunded automatically if the minimum quantity is not reached.
+              </p>
+            </div>
+
+            {error && (
+              <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+                {error}
+              </p>
+            )}
           </div>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded-lg bg-teal-700 px-4 py-3.5 text-base font-semibold text-white transition hover:bg-teal-800 active:bg-teal-900 disabled:opacity-60"
-          >
-            {submitting
-              ? "Opening Mobile Money..."
-              : `Pay ${formatGhs(totalPesewas)} with MoMo`}
-          </button>
+          {/* Live Total & Pay CTA Card */}
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-end justify-between gap-3">
+              <div className="text-xs text-slate-600">
+                <p>
+                  Total Selected:{" "}
+                  <span className="font-bold text-slate-900">
+                    {qty} {qty === 1 ? "unit" : "units"}
+                  </span>
+                </p>
+                {hasSplitBalance ? (
+                  <p className="mt-0.5">
+                    Total Value:{" "}
+                    <span className="font-semibold text-slate-900">
+                      {formatGhs(fullTotalPesewas)}
+                    </span>{" "}
+                    · Balance on pickup:{" "}
+                    <span className="font-semibold text-slate-900">
+                      {formatGhs(balanceTotalPesewas)}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-slate-500">
+                    Full payment · No balance on pickup
+                  </p>
+                )}
+              </div>
+
+              <div className="shrink-0 text-right">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                  Deposit Due Now
+                </p>
+                <p className="text-xl font-extrabold text-slate-950">
+                  {formatGhs(depositTotalPesewas)}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full rounded-xl bg-[#071527] px-4 py-3.5 text-sm font-bold text-white transition hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60"
+            >
+              {submitting
+                ? "Opening Paystack Mobile Money..."
+                : `Reserve & Pay MoMo Deposit (${formatGhs(depositTotalPesewas)})`}
+            </button>
+
+            <p className="text-center text-[11px] text-slate-500">
+              Paid securely via Paystack · Instant SMS updates via Arkesel
+            </p>
+          </div>
         </form>
       )}
     </div>

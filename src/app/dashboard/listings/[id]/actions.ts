@@ -66,6 +66,7 @@ export async function closeListingEarly(listingId: string): Promise<{
   revalidatePath("/dashboard");
   revalidatePath(`/dashboard/listings/${listing.id}`);
   revalidatePath(`/l/${listing.slug}`);
+  revalidatePath(`/l/${listing.slug}/track`);
 
   return { ok: true };
 }
@@ -81,7 +82,8 @@ export type UpdateListingStatusResult = {
 export async function updateListingStatus(
   listingId: string,
   status: NotifiableListingStatus,
-  note: string
+  note: string,
+  proofImageUrl?: string | null
 ): Promise<UpdateListingStatusResult> {
   if (!UUID_REGEX.test(listingId)) {
     return { ok: false, error: "Invalid listing ID." };
@@ -94,6 +96,14 @@ export async function updateListingStatus(
   if (typeof note !== "string" || note.trim().length > 200) {
     return { ok: false, error: "Note must be 200 characters or fewer." };
   }
+
+  const safeProofUrl =
+    typeof proofImageUrl === "string" &&
+    /^https:\/\/[a-z0-9.-]+\.supabase\.co\/storage\/v1\/object\/public\/listing-images\//i.test(
+      proofImageUrl.trim()
+    )
+      ? proofImageUrl.trim()
+      : null;
 
   const { supabase, importer } = await getAuthContext();
   if (!supabase || !importer) {
@@ -131,6 +141,7 @@ export async function updateListingStatus(
       listing_id: listing.id,
       status,
       note: trimmedNote,
+      proof_image_url: safeProofUrl,
     })
     .select("id")
     .single();
@@ -155,7 +166,7 @@ export async function updateListingStatus(
 
   // 4. Queue SMS sends via Arkesel so one failure never blocks the rest
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "");
-  const trackUrl = appUrl ? `${appUrl}/l/${listing.slug}` : undefined;
+  const trackUrl = appUrl ? `${appUrl}/l/${listing.slug}/track` : undefined;
   const message = buildStatusSmsMessage({
     title: listing.title,
     status,
@@ -190,6 +201,7 @@ export async function updateListingStatus(
   revalidatePath("/dashboard");
   revalidatePath(`/dashboard/listings/${listing.id}`);
   revalidatePath(`/l/${listing.slug}`);
+  revalidatePath(`/l/${listing.slug}/track`);
 
   return {
     ok: true,

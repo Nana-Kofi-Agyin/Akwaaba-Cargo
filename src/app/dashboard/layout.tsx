@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getAuthContext } from "@/lib/auth";
 import { BrandLogo } from "@/components/brand-logo";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({
   children,
 }: {

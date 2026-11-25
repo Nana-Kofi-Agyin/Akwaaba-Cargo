@@ -46,6 +46,7 @@ export type Database = {
           description: string | null;
           image_url: string | null;
           price_pesewas: number;
+          full_price_pesewas: number | null;
           min_qty: number;
           deadline: string;
           status: ListingStatus;
@@ -59,6 +60,7 @@ export type Database = {
           description?: string | null;
           image_url?: string | null;
           price_pesewas: number;
+          full_price_pesewas?: number | null;
           min_qty?: number;
           deadline: string;
           status?: ListingStatus;
@@ -72,6 +74,7 @@ export type Database = {
           description?: string | null;
           image_url?: string | null;
           price_pesewas?: number;
+          full_price_pesewas?: number | null;
           min_qty?: number;
           deadline?: string;
           status?: ListingStatus;
@@ -137,6 +140,7 @@ export type Database = {
           listing_id: string;
           status: ListingStatus;
           note: string | null;
+          proof_image_url: string | null;
           created_at: string;
         };
         Insert: {
@@ -144,6 +148,7 @@ export type Database = {
           listing_id: string;
           status: ListingStatus;
           note?: string | null;
+          proof_image_url?: string | null;
           created_at?: string;
         };
         Update: {
@@ -151,6 +156,7 @@ export type Database = {
           listing_id?: string;
           status?: ListingStatus;
           note?: string | null;
+          proof_image_url?: string | null;
           created_at?: string;
         };
         Relationships: [

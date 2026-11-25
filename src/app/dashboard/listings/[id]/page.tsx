@@ -16,8 +16,8 @@ export default async function ListingDetailPage({
   params,
 }: ListingDetailPageProps) {
   const { id } = await params;
-  const { supabase, importer } = await getAuthContext();
-  if (!supabase || !importer) {
+  const { supabase, user, importer } = await getAuthContext();
+  if (!supabase || !user || !importer) {
     redirect("/login");
   }
 
@@ -169,6 +169,7 @@ export default async function ListingDetailPage({
       {/* Status Control + Arkesel SMS */}
       <StatusControl
         listingId={listing.id}
+        userId={user.id}
         currentStatus={listing.status}
         paidBuyerCount={uniquePaidBuyers}
       />

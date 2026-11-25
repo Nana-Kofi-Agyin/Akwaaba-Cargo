@@ -36,6 +36,7 @@ export function CreateListingForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priceGhs, setPriceGhs] = useState("");
+  const [fullPriceGhs, setFullPriceGhs] = useState("");
   const [minQty, setMinQty] = useState("1");
   const [deadline, setDeadline] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -97,8 +98,19 @@ export function CreateListingForm({
 
     const pricePesewas = ghsToPesewas(priceGhs);
     if (!pricePesewas) {
-      setError("Please enter a valid price in GHS greater than 0.");
+      setError("Please enter a valid deposit price in GHS greater than 0.");
       return;
+    }
+
+    let fullPricePesewas: number | null = null;
+    if (fullPriceGhs.trim() !== "") {
+      fullPricePesewas = ghsToPesewas(fullPriceGhs);
+      if (!fullPricePesewas || fullPricePesewas < pricePesewas) {
+        setError(
+          "Full price must be greater than or equal to the deposit due now."
+        );
+        return;
+      }
     }
 
     const parsedMinQty = Number.parseInt(minQty, 10);
@@ -164,6 +176,7 @@ export function CreateListingForm({
             description: description.trim() || null,
             image_url: imageUrl,
             price_pesewas: pricePesewas,
+            full_price_pesewas: fullPricePesewas,
             min_qty: parsedMinQty,
             deadline: deadlineDate.toISOString(),
             status: "open",
@@ -204,6 +217,7 @@ export function CreateListingForm({
     setTitle("");
     setDescription("");
     setPriceGhs("");
+    setFullPriceGhs("");
     setMinQty("1");
     setDeadline("");
     setImageFile(null);
@@ -332,7 +346,7 @@ export function CreateListingForm({
             htmlFor="priceGhs"
             className="block text-sm font-medium text-gray-700"
           >
-            Price (GHS)
+            Deposit now (GHS)
           </label>
           <input
             id="priceGhs"
@@ -343,30 +357,54 @@ export function CreateListingForm({
             required
             value={priceGhs}
             onChange={(e) => setPriceGhs(e.target.value)}
-            placeholder="150.00"
+            placeholder="200.00"
             className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
           />
         </div>
 
         <div>
           <label
-            htmlFor="minQty"
+            htmlFor="fullPriceGhs"
             className="block text-sm font-medium text-gray-700"
           >
-            Min. quantity
+            Full price{" "}
+            <span className="font-normal text-gray-400">(optional)</span>
           </label>
           <input
-            id="minQty"
+            id="fullPriceGhs"
             type="number"
-            inputMode="numeric"
+            inputMode="decimal"
+            step="0.01"
             min="1"
-            step="1"
-            required
-            value={minQty}
-            onChange={(e) => setMinQty(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+            value={fullPriceGhs}
+            onChange={(e) => setFullPriceGhs(e.target.value)}
+            placeholder="680.00"
+            className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 placeholder:text-gray-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
           />
         </div>
+      </div>
+
+      <div>
+        <label
+          htmlFor="minQty"
+          className="block text-sm font-medium text-gray-700"
+        >
+          Minimum quantity
+        </label>
+        <input
+          id="minQty"
+          type="number"
+          inputMode="numeric"
+          min="1"
+          step="1"
+          required
+          value={minQty}
+          onChange={(e) => setMinQty(e.target.value)}
+          className="mt-1 block w-full rounded-lg border border-gray-300 px-3.5 py-3 text-base text-gray-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Leave Full price blank if buyers pay the full amount upfront.
+        </p>
       </div>
 
       <div>

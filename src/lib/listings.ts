@@ -1,11 +1,13 @@
 import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildImporterWhatsAppUrl } from "@/lib/format";
 import type { ListingStatus } from "@/types/database";
 
 export type PublicStatusUpdate = {
   id: string;
   status: ListingStatus;
   note: string | null;
+  proof_image_url: string | null;
   created_at: string;
 };
 
@@ -16,10 +18,13 @@ export type PublicListing = {
   description: string | null;
   image_url: string | null;
   price_pesewas: number;
+  full_price_pesewas: number | null;
   min_qty: number;
   deadline: string;
   status: ListingStatus;
+  created_at: string;
   importer_name: string | null;
+  importer_whatsapp_url: string | null;
   reserved_people: number;
   reserved_qty: number;
   status_updates: PublicStatusUpdate[];
@@ -29,7 +34,7 @@ export type PublicListing = {
  * Fetches a listing by slug along with aggregate paid reservation counts
  * and public status timeline updates.
  * Wrapped in React cache() so generateMetadata and the page share one query.
- * Only returns public-safe fields (never exposes buyer PII or importer phone).
+ * Only returns public-safe fields (never exposes buyer PII).
  */
 export const getPublicListingBySlug = cache(
   async (slug: string): Promise<PublicListing | null> => {
@@ -38,7 +43,7 @@ export const getPublicListingBySlug = cache(
     const { data: listing, error } = await admin
       .from("listings")
       .select(
-        "id, slug, title, description, image_url, price_pesewas, min_qty, deadline, status, importers(name)"
+        "id, slug, title, description, image_url, price_pesewas, full_price_pesewas, min_qty, deadline, status, created_at, importers(name, phone)"
       )
       .eq("slug", slug)
       .maybeSingle();
@@ -55,7 +60,7 @@ export const getPublicListingBySlug = cache(
         .eq("payment_status", "paid"),
       admin
         .from("status_updates")
-        .select("id, status, note, created_at")
+        .select("id, status, note, proof_image_url, created_at")
         .eq("listing_id", listing.id)
         .order("created_at", { ascending: false }),
     ]);
@@ -65,12 +70,10 @@ export const getPublicListingBySlug = cache(
       paidOrders?.reduce((sum, order) => sum + order.qty, 0) ?? 0;
 
     const importerRel = listing.importers as
-      | { name: string }
-      | { name: string }[]
+      | { name: string; phone: string }
+      | { name: string; phone: string }[]
       | null;
-    const importerName = Array.isArray(importerRel)
-      ? (importerRel[0]?.name ?? null)
-      : (importerRel?.name ?? null);
+    const importer = Array.isArray(importerRel) ? importerRel[0] : importerRel;
 
     return {
       id: listing.id,
@@ -79,10 +82,15 @@ export const getPublicListingBySlug = cache(
       description: listing.description,
       image_url: listing.image_url,
       price_pesewas: listing.price_pesewas,
+      full_price_pesewas: listing.full_price_pesewas ?? null,
       min_qty: listing.min_qty,
       deadline: listing.deadline,
       status: listing.status,
-      importer_name: importerName,
+      created_at: listing.created_at,
+      importer_name: importer?.name ?? null,
+      importer_whatsapp_url: importer?.phone
+        ? buildImporterWhatsAppUrl(importer.phone, listing.title)
+        : null,
       reserved_people: reservedPeople,
       reserved_qty: reservedQty,
       status_updates: statusUpdates ?? [],

@@ -185,13 +185,21 @@ export default async function OrderSuccessPage({
           </dl>
 
           {listing && (
-            <div className="mt-5">
+            <div className="mt-5 space-y-2.5">
+              {isPaid && (
+                <Link
+                  href={`/l/${listing.slug}/track`}
+                  className="block w-full rounded-xl bg-[#071527] px-4 py-3 text-center text-sm font-bold text-white hover:bg-slate-800"
+                >
+                  Track batch progress
+                </Link>
+              )}
               <Link
                 href={`/l/${listing.slug}`}
-                className={`block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold ${
+                className={`block w-full rounded-xl px-4 py-3 text-center text-sm font-semibold ${
                   isFailed
-                    ? "bg-teal-700 text-white hover:bg-teal-800"
-                    : "border border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
+                    ? "bg-[#0f6b47] text-white hover:bg-[#0a5236]"
+                    : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                 }`}
               >
                 {isFailed ? "Try payment again" : "Back to batch page"}
