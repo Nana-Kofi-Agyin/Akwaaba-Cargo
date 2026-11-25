@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { buildImporterWhatsAppUrl } from "@/lib/format";
 import type { ListingStatus, ShippingMethod } from "@/types/database";
 
@@ -36,6 +37,12 @@ export type PublicListing = {
   status_updates: PublicStatusUpdate[];
 };
 
+const FULL_LISTING_SELECT =
+  "id, slug, title, description, image_url, gallery_urls, price_pesewas, full_price_pesewas, min_qty, max_qty_per_order, shipping_method, estimated_arrival, pickup_location, delivery_fee_pesewas, deadline, status, created_at, importers(name, phone)";
+
+const BASE_LISTING_SELECT =
+  "id, slug, title, description, image_url, price_pesewas, min_qty, deadline, status, created_at";
+
 /**
  * Fetches a listing by slug along with aggregate paid reservation counts
  * and public status timeline updates.
@@ -43,42 +50,107 @@ export type PublicListing = {
  * Only returns public-safe fields (never exposes buyer PII).
  */
 export const getPublicListingBySlug = cache(
-  async (slug: string): Promise<PublicListing | null> => {
-    const admin = createAdminClient();
+  async (rawSlug: string): Promise<PublicListing | null> => {
+    const slug = decodeURIComponent(rawSlug).trim();
+    if (!slug) return null;
 
-    const { data: listing, error } = await admin
+    const hasServiceRole = Boolean(
+      process.env.NEXT_PUBLIC_SUPABASE_URL &&
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+
+    const db = hasServiceRole ? createAdminClient() : await createClient();
+
+    // Try full query first (includes optional 0004/0005 columns & importer join)
+    const { data: fullListing, error: fullError } = await db
       .from("listings")
-      .select(
-        "id, slug, title, description, image_url, gallery_urls, price_pesewas, full_price_pesewas, min_qty, max_qty_per_order, shipping_method, estimated_arrival, pickup_location, delivery_fee_pesewas, deadline, status, created_at, importers(name, phone)"
-      )
+      .select(FULL_LISTING_SELECT)
       .eq("slug", slug)
       .maybeSingle();
 
-    if (error || !listing) {
+    type ListingRowShape = {
+      id: string;
+      slug: string;
+      title: string;
+      description: string | null;
+      image_url: string | null;
+      gallery_urls?: string[] | null;
+      price_pesewas: number;
+      full_price_pesewas?: number | null;
+      min_qty: number;
+      max_qty_per_order?: number | null;
+      shipping_method?: ShippingMethod | null;
+      estimated_arrival?: string | null;
+      pickup_location?: string | null;
+      delivery_fee_pesewas?: number | null;
+      deadline: string;
+      status: ListingStatus;
+      created_at: string;
+      importers?:
+        | { name: string; phone: string }
+        | { name: string; phone: string }[]
+        | null;
+    };
+
+    let listing: ListingRowShape | null = fullListing as ListingRowShape | null;
+
+    // Fallback to base columns if a newer migration (0004/0005) hasn't been run
+    // or if using the anon client where importers join is blocked by RLS.
+    if (fullError) {
+      console.error("[getPublicListingBySlug] full query failed:", fullError);
+      const { data: baseListing, error: baseError } = await db
+        .from("listings")
+        .select(BASE_LISTING_SELECT)
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (baseError) {
+        console.error("[getPublicListingBySlug] base query failed:", baseError);
+        return null;
+      }
+      listing = baseListing as ListingRowShape | null;
+    }
+
+    if (!listing) {
       return null;
     }
 
-    const [{ data: paidOrders }, { data: statusUpdates }] = await Promise.all([
-      admin
-        .from("orders")
-        .select("qty")
-        .eq("listing_id", listing.id)
-        .eq("payment_status", "paid"),
-      admin
+    const [{ data: paidOrders }, { data: statusUpdates, error: updatesError }] =
+      await Promise.all([
+        db
+          .from("orders")
+          .select("qty")
+          .eq("listing_id", listing.id)
+          .eq("payment_status", "paid"),
+        db
+          .from("status_updates")
+          .select("id, status, note, proof_image_url, created_at")
+          .eq("listing_id", listing.id)
+          .order("created_at", { ascending: false }),
+      ]);
+
+    let resolvedUpdates: PublicStatusUpdate[] =
+      (statusUpdates as PublicStatusUpdate[] | null) ?? [];
+
+    // Fallback if proof_image_url column (0004) isn't present yet
+    if (updatesError) {
+      const { data: baseUpdates } = await db
         .from("status_updates")
-        .select("id, status, note, proof_image_url, created_at")
+        .select("id, status, note, created_at")
         .eq("listing_id", listing.id)
-        .order("created_at", { ascending: false }),
-    ]);
+        .order("created_at", { ascending: false });
+
+      resolvedUpdates = (baseUpdates ?? []).map((u) => ({
+        ...u,
+        proof_image_url: null,
+      }));
+    }
 
     const reservedPeople = paidOrders?.length ?? 0;
     const reservedQty =
       paidOrders?.reduce((sum, order) => sum + order.qty, 0) ?? 0;
 
-    const importerRel = listing.importers as
-      | { name: string; phone: string }
-      | { name: string; phone: string }[]
-      | null;
+    const importerRel = listing.importers ?? null;
     const importer = Array.isArray(importerRel) ? importerRel[0] : importerRel;
 
     const photoSet = new Set<string>();
@@ -111,7 +183,7 @@ export const getPublicListingBySlug = cache(
         : null,
       reserved_people: reservedPeople,
       reserved_qty: reservedQty,
-      status_updates: statusUpdates ?? [],
+      status_updates: resolvedUpdates,
     };
   }
 );
